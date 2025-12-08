@@ -32,7 +32,7 @@ function AttendanceApp() {
     if (token && !attendanceData) {
       // REVERTED: Direct Link
       axios.get<AttendanceResponse>(
-        "https://kiet.cybervidya.net/api/attendance/course/component/student",
+        "/attendance-api/api/attendance/course/component/student",
         { headers: { Authorization: `GlobalEducation ${token}` } }
       ).then(res => {
         setAttendanceData(res.data);

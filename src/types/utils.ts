@@ -4,7 +4,7 @@ export async function fetchStudentId(token: string): Promise<number | null> {
     try {
         // REVERTED: Direct link to CyberVidya
         const response = await axios.get(
-            "https://kiet.cybervidya.net/api/student/dashboard/registered-courses",
+            "/attendance-api/api/student/dashboard/registered-courses",
             { headers: { Authorization: `GlobalEducation ${token}` } },
         );
 

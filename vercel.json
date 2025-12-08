@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/attendance-api/:path*",
+      "destination": "https://kiet.cybervidya.net/:path*"
+    },
+    {
+      "source": "/moodle-api/:path*",
+      "destination": "http://lms.kiet.edu/moodle/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

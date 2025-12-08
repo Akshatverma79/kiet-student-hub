@@ -23,7 +23,7 @@ const OverallAtt = memo(function OverallAtt() {
             try {
                 // REVERTED: Direct Link
                 const response = await axios.get(
-                    "https://kiet.cybervidya.net/api/student/dashboard/attendance",
+                    "/attendance-api/api/student/dashboard/attendance",
                     {
                         headers: {
                             Authorization: `GlobalEducation ${token}`,

@@ -24,7 +24,7 @@ function DaywiseReport({ token, payload }: DaywiseReportProps) {
             try {
                 // REVERTED: Direct Link
                 const response = await axios.post<AttendanceApiResponse>(
-                    "https://kiet.cybervidya.net/api/attendance/schedule/student/course/attendance/percentage",
+                    "/attendance-api/api/attendance/schedule/student/course/attendance/percentage",
                     payload,
                     {
                         headers: {

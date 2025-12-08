@@ -51,7 +51,7 @@ export default function Attendance({ attendanceData, setAttendanceData }: Attend
                     const { startDate } = getWeekRange();
                     // REVERTED: Direct Link
                     const scheduleResponse = await axios.get<ScheduleResponse>(
-                        `https://kiet.cybervidya.net/api/student/schedule/class?weekEndDate=2025-12-09&weekStartDate=${startDate}`,
+                        `/attendance-api/api/student/schedule/class?weekEndDate=2025-12-09&weekStartDate=${startDate}`,
                         { headers: { Authorization: `GlobalEducation ${token}` } },
                     );
                     setSchedule(scheduleResponse.data.data);

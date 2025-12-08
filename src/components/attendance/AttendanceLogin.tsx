@@ -18,7 +18,7 @@ export default function AttendanceLogin({ onLogin }: { onLogin: (data: Attendanc
 
         try {
             // 1. Get Token (Direct Link)
-            const loginResponse = await axios.post<LoginResponse>("https://kiet.cybervidya.net/api/auth/login", {
+            const loginResponse = await axios.post<LoginResponse>("/attendance-api/api/auth/login", {
                 userName: username,
                 password: password,
             });
@@ -28,7 +28,7 @@ export default function AttendanceLogin({ onLogin }: { onLogin: (data: Attendanc
 
             // 2. Fetch Data (Direct Link)
             const dataResponse = await axios.get<AttendanceResponse>(
-                "https://kiet.cybervidya.net/api/attendance/course/component/student",
+                "/attendance-api/api/attendance/course/component/student",
                 { headers: { Authorization: `GlobalEducation ${token}` } }
             );
 
@@ -58,7 +58,7 @@ export default function AttendanceLogin({ onLogin }: { onLogin: (data: Attendanc
                 
                 <form onSubmit={handleLogin} className="space-y-5">
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider ml-1">Roll Number</label>
+                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider ml-1">University Roll Number</label>
                         <div className="relative group">
                             <div className="absolute left-3 top-3.5 text-slate-400 group-focus-within:text-emerald-600 transition-colors"><User size={20} /></div>
                             <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-semibold" placeholder="Roll No..." required />

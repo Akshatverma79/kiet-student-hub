@@ -2,7 +2,7 @@ import axios from "axios";
 import Cookies from "js-cookie";
 import { ArrowRight, GraduationCap, Lock, User } from "lucide-react";
 import { useState } from "react";
-import { AUTH_COOKIE_NAME, COOKIE_EXPIRY, PASSWORD_COOKIE, REMEMBER_ME_COOKIE, USERNAME_COOKIE } from "../../types/CookieVars";
+import { AUTH_COOKIE_NAME, COOKIE_EXPIRY, USERNAME_COOKIE } from "../../types/CookieVars";
 import type { AttendanceResponse, LoginResponse } from "../../types/response";
 
 export default function AttendanceLogin({ onLogin }: { onLogin: (data: AttendanceResponse) => void }) {

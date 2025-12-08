@@ -1,6 +1,6 @@
 import axios from "axios";
 import Cookies from "js-cookie";
-import { AlertTriangle, CalendarDays, CheckCircle, ChevronDown, ChevronUp, LogOut, User, Wand2, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, LogOut, User, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AUTH_COOKIE_NAME, USERNAME_COOKIE } from "../../types/CookieVars";
 import type { AttendanceResponse, ScheduleEntry, ScheduleResponse } from "../../types/response";

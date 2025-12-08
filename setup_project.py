@@ -1,70 +1,65 @@
 import os
 
-# Define the file contents
+# We are reverting the Attendance URLs to use "https://kiet.cybervidya.net" directly
+# while keeping the Moodle URLs on the Proxy.
+
 files = {
-    "vite.config.ts": """import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react-swc";
-import { defineConfig } from "vite";
+    # 1. FIX UTILS (Student ID Fetcher)
+    "src/types/utils.ts": """import axios from "axios";
 
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  server: {
-    proxy: {
-      '/moodle-api': {
-        target: 'http://lms.kiet.edu',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\\/moodle-api/, '/moodle'),
-      },
-    },
-  },
-});
-""",
+export async function fetchStudentId(token: string): Promise<number | null> {
+    try {
+        // REVERTED: Direct link to CyberVidya
+        const response = await axios.get(
+            "https://kiet.cybervidya.net/api/student/dashboard/registered-courses",
+            { headers: { Authorization: `GlobalEducation ${token}` } },
+        );
 
-    "src/index.css": """@import "tailwindcss";
-
-body {
-  background-color: #f3f4f6;
-}
-""",
-
-    "src/types/moodle.ts": """export interface MoodleTokenResponse {
-    token: string;
-    privatetoken: string | null;
-    error?: string;
+        if (response.data.data.length > 0) {
+            return response.data.data[0].studentId;
+        } else {
+            return null;
+        }
+    } catch (error) {
+        console.error("Error fetching registered courses", error);
+        return null;
+    }
 }
 
-export interface AssignmentEvent {
-    id: number;
-    name: string;
-    description: string;
-    course: {
-        id: number;
-        fullname: string;
-        shortname: string;
+export function getWeekRange() {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayOfWeek = today.getDay();
+
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - dayOfWeek);
+
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+
+    const formatDate = (date: Date) => {
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, "0");
+        const dd = String(date.getDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
     };
-    timesort: number; // Unix timestamp for Due Date
-    url: string;
-    action: {
-        name: string;
-        itemcount: number;
-        actionable: boolean;
+
+    return {
+        startDate: formatDate(startDate),
+        endDate: formatDate(endDate),
     };
 }
-
-export interface MoodleEventsResponse {
-    events: AssignmentEvent[];
-}
 """,
 
-    "src/components/MoodleLogin.tsx": """import axios from "axios";
+    # 2. FIX LOGIN (Auth Requests)
+    "src/components/attendance/AttendanceLogin.tsx": """import axios from "axios";
 import Cookies from "js-cookie";
-import { Lock, User } from "lucide-react";
+import { ArrowRight, GraduationCap, Lock, User } from "lucide-react";
 import { useState } from "react";
+import { AUTH_COOKIE_NAME, COOKIE_EXPIRY, PASSWORD_COOKIE, REMEMBER_ME_COOKIE, USERNAME_COOKIE } from "../../types/CookieVars";
+import type { AttendanceResponse, LoginResponse } from "../../types/response";
 
-const MOODLE_COOKIE = "moodle_token";
-
-export default function MoodleLogin({ onLogin }: { onLogin: () => void }) {
+export default function AttendanceLogin({ onLogin }: { onLogin: (data: AttendanceResponse) => void }) {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
@@ -76,74 +71,62 @@ export default function MoodleLogin({ onLogin }: { onLogin: () => void }) {
         setError("");
 
         try {
-            // Use relative path so requests go through the Vite Proxy
-            const response = await axios.get("/moodle-api/login/token.php", {
-                params: {
-                    username: username,
-                    password: password,
-                    service: "moodle_mobile_app",
-                },
+            // 1. Get Token (Direct Link)
+            const loginResponse = await axios.post<LoginResponse>("https://kiet.cybervidya.net/api/auth/login", {
+                userName: username,
+                password: password,
             });
 
-            if (response.data.error) {
-                setError("Login failed: " + response.data.error);
-            } else if (response.data.token) {
-                Cookies.set(MOODLE_COOKIE, response.data.token, { expires: 90 });
-                onLogin();
-            } else {
-                setError("Unexpected response from server.");
-            }
+            const token = loginResponse.data.data.token;
+            if (!token) throw new Error("No token received");
+
+            // 2. Fetch Data (Direct Link)
+            const dataResponse = await axios.get<AttendanceResponse>(
+                "https://kiet.cybervidya.net/api/attendance/course/component/student",
+                { headers: { Authorization: `GlobalEducation ${token}` } }
+            );
+
+            // 3. Save & Continue
+            Cookies.set(AUTH_COOKIE_NAME, token, { expires: COOKIE_EXPIRY });
+            Cookies.set(USERNAME_COOKIE, username, { expires: COOKIE_EXPIRY });
+            onLogin(dataResponse.data);
+
         } catch (err) {
             console.error(err);
-            setError("Network error. Check your internet connection.");
+            setError("Invalid credentials or server error.");
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gray-100 px-4">
-            <div className="w-full max-w-md bg-white p-8 border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-                <h2 className="text-3xl font-black text-center mb-6 uppercase tracking-wider">
-                    Moodle Tracker
-                </h2>
-                <form onSubmit={handleLogin} className="space-y-4">
+        <div className="flex items-center justify-center min-h-screen bg-slate-50 px-4 font-sans text-slate-900">
+            <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl border border-slate-100 animate-fade-in">
+                <div className="flex flex-col items-center mb-8">
+                    <div className="bg-emerald-600 p-3 rounded-2xl shadow-lg shadow-emerald-200 mb-4 transform transition-transform hover:scale-105">
+                        <GraduationCap className="text-white h-8 w-8" />
+                    </div>
+                    <h2 className="text-2xl font-black text-slate-800 tracking-tight">Attendance Portal</h2>
+                    <p className="text-sm text-slate-500 font-medium mt-1">Sign in with CyberVidya ID</p>
+                </div>
+                
+                <form onSubmit={handleLogin} className="space-y-5">
                     <div>
-                        <label className="block font-bold mb-1">University Roll No</label>
-                        <div className="flex items-center border-2 border-black p-2">
-                            <User className="mr-2" />
-                            <input
-                                type="text"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                className="w-full outline-none"
-                                placeholder="Roll No..."
-                                required
-                            />
+                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider ml-1">Roll Number</label>
+                        <div className="relative group">
+                            <div className="absolute left-3 top-3.5 text-slate-400 group-focus-within:text-emerald-600 transition-colors"><User size={20} /></div>
+                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-semibold" placeholder="Roll No..." required />
                         </div>
                     </div>
                     <div>
-                        <label className="block font-bold mb-1">Password</label>
-                        <div className="flex items-center border-2 border-black p-2">
-                            <Lock className="mr-2" />
-                            <input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="w-full outline-none"
-                                placeholder="Password"
-                                required
-                            />
+                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider ml-1">Password</label>
+                        <div className="relative group">
+                            <div className="absolute left-3 top-3.5 text-slate-400 group-focus-within:text-emerald-600 transition-colors"><Lock size={20} /></div>
+                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-semibold" placeholder="••••••••" required />
                         </div>
                     </div>
-                    {error && <p className="text-red-600 font-bold bg-red-100 p-2 border-2 border-red-600">{error}</p>}
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full bg-black text-white font-bold py-3 hover:-translate-y-1 transition-transform border-2 border-transparent"
-                    >
-                        {loading ? "CONNECTING..." : "ACCESS ASSIGNMENTS"}
-                    </button>
+                    {error && <div className="p-3 bg-red-50 text-red-600 text-xs font-bold rounded-lg border border-red-100 flex items-center"><span className="mr-2 text-base">⚠️</span>{error}</div>}
+                    <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg hover:shadow-xl transform transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-4">{loading ? "Verifying..." : <>Login <ArrowRight size={18} strokeWidth={2.5}/></>}</button>
                 </form>
             </div>
         </div>
@@ -151,120 +134,428 @@ export default function MoodleLogin({ onLogin }: { onLogin: () => void }) {
 }
 """,
 
-    "src/components/MoodleAssignments.tsx": """import axios from "axios";
+    # 3. FIX OVERALL STATS (Progress Bar Data)
+    "src/components/attendance/OverallAtt.tsx": """import ProgressBar from "@ramonak/react-progress-bar";
+import axios from "axios";
 import Cookies from "js-cookie";
-import { Calendar, CheckCircle, ExternalLink, LogOut } from "lucide-react";
-import { useEffect, useState } from "react";
-import { AssignmentEvent, MoodleEventsResponse } from "../types/moodle";
+import { memo, useEffect, useState } from "react";
+import { AUTH_COOKIE_NAME } from "../../types/CookieVars";
+import type { AttendanceDataSummaryResponse } from "../../types/response";
 
-export default function MoodleAssignments({ onLogout }: { onLogout: () => void }) {
-    const [assignments, setAssignments] = useState<AssignmentEvent[]>([]);
-    const [loading, setLoading] = useState(true);
+const attendanceColour = {
+    above80: "22c55e",
+    below80: "eab308",
+    below75: "dc2626",
+};
+
+const OverallAtt = memo(function OverallAtt() {
+    const [attendanceDataSummary, setSetAndanceDataSummary] =
+        useState<AttendanceDataSummaryResponse | null>(null);
+    
+    useEffect(() => {
+        const fetchData = async () => {
+            const token = Cookies.get(AUTH_COOKIE_NAME);
+            if (!token) return;
+            
+            try {
+                // REVERTED: Direct Link
+                const response = await axios.get(
+                    "https://kiet.cybervidya.net/api/student/dashboard/attendance",
+                    {
+                        headers: {
+                            Authorization: `GlobalEducation ${token}`,
+                        },
+                    },
+                );
+                setSetAndanceDataSummary(response.data);
+            } catch (e) {
+                console.error("Failed to fetch overall stats");
+            }
+        };
+        if (!attendanceDataSummary) {
+            fetchData();
+        }
+    }, [attendanceDataSummary]);
+
+    function handleAttendanceSliderColour(): string {
+        if (attendanceDataSummary) {
+            const percentage = attendanceDataSummary.data.presentPerc;
+            if (percentage >= 80) return attendanceColour.above80;
+            else if (percentage >= 75) return attendanceColour.below80;
+            else return attendanceColour.below75;
+        }
+        return attendanceColour.above80;
+    }
+
+    return (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-8 animate-fade-in">
+            <h1 className="text-xl font-black text-slate-800 mb-4">Overall Attendance</h1>
+            {attendanceDataSummary && (
+                <ProgressBar
+                    completed={attendanceDataSummary.data.presentPerc}
+                    bgColor={`#${handleAttendanceSliderColour()}`}
+                    height="30px"
+                    labelAlignment="center"
+                    labelColor="#ffffff"
+                    labelSize="14px"
+                    animateOnRender
+                    customLabel={`${attendanceDataSummary.data.presentPerc}%`}
+                    baseBgColor="#e2e8f0"
+                />
+            )}
+        </div>
+    );
+});
+
+export default OverallAtt;
+""",
+
+    # 4. FIX DAYWISE REPORT (Detailed Data)
+    "src/components/attendance/Daywise.tsx": """import axios from "axios";
+import { useEffect, useState } from "react";
+import type {
+    AttendanceApiResponse,
+    DaywiseReportProps,
+    LectureListProps,
+} from "../../types/response";
+
+function formatDate(dateString: string) {
+    const date = new Date(dateString);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = String(date.getFullYear()).slice(-2);
+    return `${day}-${month}-${year}`;
+}
+
+function DaywiseReport({ token, payload }: DaywiseReportProps) {
+    const [daywiseData, setDaywiseData] = useState<LectureListProps[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
+    const [error, setError] = useState<string>("");
 
     useEffect(() => {
-        const fetchAssignments = async () => {
-            const token = Cookies.get("moodle_token");
-            if (!token) return;
-
-            const now = Math.floor(Date.now() / 1000);
-
+        const fetchDaywiseAttendance = async () => {
             try {
-                const response = await axios.get<MoodleEventsResponse>(
-                    "/moodle-api/webservice/rest/server.php",
+                // REVERTED: Direct Link
+                const response = await axios.post<AttendanceApiResponse>(
+                    "https://kiet.cybervidya.net/api/attendance/schedule/student/course/attendance/percentage",
+                    payload,
                     {
-                        params: {
-                            wstoken: token,
-                            wsfunction: "core_calendar_get_action_events_by_timesort",
-                            moodlewsrestformat: "json",
-                            timesortfrom: now,
-                            limitnum: 20
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `GlobalEducation ${token}`,
                         },
-                    }
+                    },
                 );
-                
-                if (response.data.events) {
-                    setAssignments(response.data.events);
+
+                if (response.data.data && response.data.data.length > 0) {
+                    const lectures = response.data.data[0].lectureList;
+                    lectures.sort(
+                        (a, b) =>
+                            new Date(b.planLecDate).getTime() -
+                            new Date(a.planLecDate).getTime(),
+                    );
+                    setDaywiseData(lectures);
+                } else {
+                    setDaywiseData([]);
                 }
-            } catch (err) {
-                console.error("Failed to fetch assignments", err);
+            } catch (err: unknown) {
+                console.error(err);
+                setError("Failed to load data or no classes yet.");
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchAssignments();
-    }, []);
+        fetchDaywiseAttendance();
+    }, [token, payload]);
 
-    const getTimeRemaining = (timestamp: number) => {
-        const now = Date.now();
-        const due = timestamp * 1000;
-        const diff = due - now;
-
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-
-        if (diff < 0) return { text: "Overdue", color: "text-red-600", bg: "bg-red-100" };
-        if (days < 1) return { text: `Due in ${hours} hours`, color: "text-red-600", bg: "bg-red-50" };
-        if (days < 3) return { text: `${days} days left`, color: "text-amber-600", bg: "bg-amber-50" };
-        return { text: `${days} days left`, color: "text-green-600", bg: "bg-green-50" };
-    };
+    if (loading) return <div className="p-4 text-center font-bold text-slate-500">Loading records...</div>;
+    if (error) return <div className="p-4 text-center text-red-600 font-bold">{error}</div>;
+    if (daywiseData.length === 0) return <div className="p-4 text-center text-slate-500">No records found.</div>;
 
     return (
-        <div className="min-h-screen bg-gray-100 p-6">
-            <div className="max-w-4xl mx-auto">
-                <div className="flex justify-between items-center mb-8">
-                    <h1 className="text-2xl font-black uppercase tracking-wide">Pending Assignments</h1>
-                    <button 
-                        onClick={onLogout}
-                        className="flex items-center gap-2 bg-white border-2 border-black px-4 py-2 font-bold hover:bg-red-50"
-                    >
-                        <LogOut size={16} /> Logout
-                    </button>
+        <div className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="overflow-x-auto max-h-[400px]">
+                <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-700 font-bold sticky top-0">
+                        <tr>
+                            <th className="p-3 border-b">Date</th>
+                            <th className="p-3 border-b">Day</th>
+                            <th className="p-3 border-b">Slot</th>
+                            <th className="p-3 border-b">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {daywiseData.map((lecture) => (
+                            <tr key={`${lecture.planLecDate}-${lecture.timeSlot}`} className="hover:bg-slate-50">
+                                <td className="p-3 font-medium">{formatDate(lecture.planLecDate)}</td>
+                                <td className="p-3 text-slate-500">{lecture.dayName.substring(0, 3)}</td>
+                                <td className="p-3 text-slate-500 text-xs">{lecture.timeSlot}</td>
+                                <td className="p-3 font-bold">
+                                    {lecture.attendance === "PRESENT" && <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded">Present</span>}
+                                    {lecture.attendance === "ADJUSTED" && <span className="text-blue-600 bg-blue-50 px-2 py-1 rounded">Adjusted</span>}
+                                    {lecture.attendance === "ABSENT" && <span className="text-red-600 bg-red-50 px-2 py-1 rounded">Absent</span>}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+export default DaywiseReport;
+""",
+
+    # 5. FIX DASHBOARD (Main Data Fetch)
+    "src/components/attendance/Attendance.tsx": """import axios from "axios";
+import Cookies from "js-cookie";
+import { AlertTriangle, CalendarDays, CheckCircle, ChevronDown, ChevronUp, LogOut, User, Wand2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AUTH_COOKIE_NAME, USERNAME_COOKIE } from "../../types/CookieVars";
+import type { AttendanceResponse, ScheduleEntry, ScheduleResponse } from "../../types/response";
+import { fetchStudentId, getWeekRange } from "../../types/utils";
+import DaywiseReport from "./Daywise";
+import OverallAtt from "./OverallAtt";
+import { Link } from "react-router-dom";
+
+interface AttendanceProps {
+    attendanceData: AttendanceResponse;
+    setAttendanceData: React.Dispatch<React.SetStateAction<AttendanceResponse | null>>;
+}
+
+interface SelectedComponentType {
+    course: AttendanceResponse["data"]["attendanceCourseComponentInfoList"][0];
+    component: AttendanceResponse["data"]["attendanceCourseComponentInfoList"][0]["attendanceCourseComponentNameInfoList"][0];
+}
+
+const TARGET_PERCENTAGE = 75;
+
+export default function Attendance({ attendanceData, setAttendanceData }: AttendanceProps) {
+    const [studentId, setStudentId] = useState<number | null>(null);
+    const [selectedComponent, setSelectedComponent] = useState<SelectedComponentType | null>(null);
+    const [isDaywiseModalOpen, setIsDaywiseModalOpen] = useState(false);
+    
+    const [showProjection, setShowProjection] = useState(false);
+    const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
+    const [missedClasses, setMissedClasses] = useState<Set<string>>(new Set());
+    const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
+
+    function handleLogout() {
+        Cookies.remove(AUTH_COOKIE_NAME);
+        Cookies.remove(USERNAME_COOKIE);
+        setAttendanceData(null);
+    }
+
+    useEffect(() => {
+        const token = Cookies.get(AUTH_COOKIE_NAME) || "";
+        fetchStudentId(token).then((id) => { if (id) setStudentId(id); });
+        window.scrollTo({ top: 0, behavior: "instant" });
+    }, []);
+
+    useEffect(() => {
+        const fetchSchedule = async () => {
+            const token = Cookies.get(AUTH_COOKIE_NAME);
+            if (token) {
+                try {
+                    const { startDate } = getWeekRange();
+                    // REVERTED: Direct Link
+                    const scheduleResponse = await axios.get<ScheduleResponse>(
+                        `https://kiet.cybervidya.net/api/student/schedule/class?weekEndDate=2025-12-09&weekStartDate=${startDate}`,
+                        { headers: { Authorization: `GlobalEducation ${token}` } },
+                    );
+                    setSchedule(scheduleResponse.data.data);
+                } catch (err) {
+                    console.error("Failed to fetch schedule", err);
+                }
+            }
+        };
+        if (showProjection && schedule.length === 0) fetchSchedule();
+    }, [showProjection, schedule]);
+
+    const handleMissClassToggle = (classStartString: string) => {
+        setMissedClasses((prev) => {
+            const newSet = new Set(prev);
+            if (newSet.has(classStartString)) newSet.delete(classStartString);
+            else newSet.add(classStartString);
+            return newSet;
+        });
+    };
+
+    const groupedSchedule = useMemo(() => {
+        const grouped = new Map<string, ScheduleEntry[]>();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        schedule
+            .filter((c) => c.type === "CLASS")
+            .forEach((c) => {
+                const [day, month, year] = c.lectureDate.split("/").map(Number);
+                const classDate = new Date(year, month - 1, day);
+                if (classDate >= today) {
+                    const dayName = classDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+                    if (!grouped.has(dayName)) grouped.set(dayName, []);
+                    grouped.get(dayName)?.push(c);
+                }
+            });
+        return grouped;
+    }, [schedule]);
+
+    return (
+        <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900">
+            <div className="max-w-6xl mx-auto">
+                {/* Header Card */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6 animate-fade-in">
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div className="flex items-center gap-4">
+                            <Link to="/" className="bg-slate-100 hover:bg-slate-200 p-3 rounded-xl transition-colors">
+                                <User className="h-8 w-8 text-slate-600" />
+                            </Link>
+                            <div>
+                                <h1 className="text-xl font-black text-slate-800 uppercase tracking-tight">{attendanceData.data.fullName}</h1>
+                                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    {attendanceData.data.branchShortName} • {attendanceData.data.semesterName}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowProjection(!showProjection)}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${showProjection ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+                            >
+                                <Wand2 size={16} /> Projection
+                            </button>
+                            <button
+                                onClick={handleLogout}
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            >
+                                <LogOut size={16} /> Logout
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
-                {loading ? (
-                    <div className="text-center font-bold animate-pulse">Loading Moodle Data...</div>
-                ) : assignments.length === 0 ? (
-                    <div className="bg-white border-2 border-black p-8 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                        <CheckCircle className="mx-auto h-12 w-12 text-green-500 mb-4" />
-                        <h2 className="text-xl font-bold">All caught up!</h2>
-                        <p className="text-gray-600">No pending assignments found in the near future.</p>
-                    </div>
-                ) : (
-                    <div className="grid gap-6 md:grid-cols-2">
-                        {assignments.map((assign) => {
-                            const status = getTimeRemaining(assign.timesort);
-                            return (
-                                <div key={assign.id} className="bg-white border-2 border-black p-5 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-1 transition-all">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <span className="text-xs font-bold bg-black text-white px-2 py-1 uppercase">
-                                            {assign.course.shortname || "Course"}
-                                        </span>
-                                        <span className={`text-xs font-bold px-2 py-1 border border-current ${status.color} ${status.bg}`}>
-                                            {status.text}
-                                        </span>
-                                    </div>
+                {/* Projection Panel */}
+                {showProjection && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-indigo-100 p-6 mb-6 animate-fade-in ring-2 ring-indigo-50">
+                        <div className="flex items-center gap-2 mb-4">
+                            <CalendarDays className="text-indigo-600" />
+                            <h3 className="text-lg font-bold text-slate-800">Attendance Projection</h3>
+                        </div>
+                        <p className="text-sm text-slate-500 mb-4">Select future classes you plan to miss to see the impact.</p>
+                        
+                        <div className="space-y-3">
+                            {groupedSchedule.size === 0 && <p className="text-slate-400 font-medium">No upcoming classes found.</p>}
+                            {Array.from(groupedSchedule.entries()).map(([day, classes]) => (
+                                <div key={day} className="border border-slate-200 rounded-xl overflow-hidden">
+                                    <button 
+                                        onClick={() => {
+                                            setExpandedDays(prev => {
+                                                const n = new Set(prev);
+                                                if (n.has(day)) n.delete(day); else n.add(day);
+                                                return n;
+                                            });
+                                        }}
+                                        className="w-full flex justify-between items-center p-3 bg-slate-50 hover:bg-slate-100 transition-colors"
+                                    >
+                                        <span className="font-bold text-sm text-slate-700">{day}</span>
+                                        {expandedDays.has(day) ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+                                    </button>
                                     
-                                    <h3 className="text-lg font-bold leading-tight mb-2">{assign.name}</h3>
-                                    <p className="text-sm text-gray-600 mb-4 line-clamp-2" dangerouslySetInnerHTML={{ __html: assign.description || "No description provided." }} />
-                                    
-                                    <div className="flex items-center justify-between border-t border-gray-200 pt-4">
-                                        <div className="flex items-center text-sm font-medium text-gray-500">
-                                            <Calendar size={16} className="mr-1" />
-                                            {new Date(assign.timesort * 1000).toLocaleDateString()}
+                                    {expandedDays.has(day) && (
+                                        <div className="p-3 bg-white space-y-2">
+                                            {classes.map(c => (
+                                                <div key={c.start} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={missedClasses.has(c.start)}
+                                                        onChange={() => handleMissClassToggle(c.start)}
+                                                        className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                    />
+                                                    <div className="text-sm">
+                                                        <span className="block font-bold text-slate-800">{c.courseName}</span>
+                                                        <span className="text-slate-500 text-xs">{c.start.split(" ")[1]} - {c.end.split(" ")[1]}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
-                                        <a 
-                                            href={assign.url} 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:underline"
-                                        >
-                                            Submit <ExternalLink size={14} />
-                                        </a>
-                                    </div>
+                                    )}
                                 </div>
-                            );
-                        })}
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {!showProjection && <OverallAtt />}
+
+                {/* Course Grid */}
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {attendanceData.data.attendanceCourseComponentInfoList.map((course) => (
+                        <div key={course.courseCode} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 hover:shadow-md transition-shadow animate-fade-in">
+                            <div className="mb-4">
+                                <h3 className="font-bold text-slate-800 leading-tight mb-1">{course.courseName}</h3>
+                                <span className="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-500">{course.courseCode}</span>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                {course.attendanceCourseComponentNameInfoList.map((comp) => {
+                                    const perc = comp.presentPercentage || 0;
+                                    const isSafe = perc >= TARGET_PERCENTAGE;
+                                    
+                                    return (
+                                        <div key={comp.componentName} className="border-t border-slate-100 pt-3">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{comp.componentName}</span>
+                                                <span className={`text-sm font-black ${isSafe ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                    {comp.presentPercentageWith}
+                                                </span>
+                                            </div>
+                                            
+                                            <div className="flex justify-between items-center text-xs text-slate-500 mb-3">
+                                                <span>Attended: {comp.numberOfPresent}/{comp.numberOfPeriods}</span>
+                                                {!isSafe && <span className="text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={10} /> Low Attendance</span>}
+                                            </div>
+                                            
+                                            <button
+                                                onClick={() => { setSelectedComponent({ course, component: comp }); setIsDaywiseModalOpen(true); }}
+                                                className="w-full py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                                            >
+                                                View Report
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {isDaywiseModalOpen && selectedComponent && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+                        <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl p-6 animate-fade-in relative">
+                            <button 
+                                onClick={() => setIsDaywiseModalOpen(false)}
+                                className="absolute top-4 right-4 p-2 bg-slate-100 rounded-full hover:bg-red-50 hover:text-red-600 transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                            
+                            <h2 className="text-lg font-bold text-slate-800 mb-1">{selectedComponent.course.courseName}</h2>
+                            <p className="text-sm text-slate-500 font-medium uppercase tracking-wider mb-6">
+                                {selectedComponent.component.componentName} Report
+                            </p>
+                            
+                            <DaywiseReport
+                                token={Cookies.get(AUTH_COOKIE_NAME) || ""}
+                                payload={{
+                                    courseCompId: selectedComponent.component.courseComponentId,
+                                    courseId: selectedComponent.course.courseId,
+                                    sessionId: null,
+                                    studentId: studentId || 0,
+                                }}
+                            />
+                        </div>
                     </div>
                 )}
             </div>
@@ -273,57 +564,82 @@ export default function MoodleAssignments({ onLogout }: { onLogout: () => void }
 }
 """,
 
-    "src/App.tsx": """import Cookies from "js-cookie";
+    # 6. FIX APP WRAPPER (Initial Fetch)
+    "src/App.tsx": """import axios from "axios";
+import Cookies from "js-cookie";
 import { useEffect, useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+
+import LandingPage from "./components/LandingPage";
 import MoodleAssignments from "./components/MoodleAssignments";
 import MoodleLogin from "./components/MoodleLogin";
+import Attendance from "./components/attendance/Attendance";
+import AttendanceLogin from "./components/attendance/AttendanceLogin";
+
+import { AUTH_COOKIE_NAME } from "./types/CookieVars";
+import type { AttendanceResponse } from "./types/response";
 
 const MOODLE_COOKIE = "moodle_token";
 
-function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  useEffect(() => {
-    const token = Cookies.get(MOODLE_COOKIE);
-    if (token) {
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  const handleLogin = () => {
-    setIsAuthenticated(true);
-  };
-
-  const handleLogout = () => {
-    Cookies.remove(MOODLE_COOKIE);
-    setIsAuthenticated(false);
-  };
-
-  return (
-    <main className="min-h-screen">
-      {!isAuthenticated ? (
-        <MoodleLogin onLogin={handleLogin} />
-      ) : (
-        <MoodleAssignments onLogout={handleLogout} />
-      )}
-    </main>
+function MoodleApp() {
+  const [isAuthenticated, setIsAuthenticated] = useState(!!Cookies.get(MOODLE_COOKIE));
+  return isAuthenticated ? (
+    <MoodleAssignments onLogout={() => { Cookies.remove(MOODLE_COOKIE); setIsAuthenticated(false); }} />
+  ) : (
+    <MoodleLogin onLogin={() => setIsAuthenticated(true)} />
   );
 }
 
-export default App;
+function AttendanceApp() {
+  const [attendanceData, setAttendanceData] = useState<AttendanceResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = Cookies.get(AUTH_COOKIE_NAME);
+    if (token && !attendanceData) {
+      // REVERTED: Direct Link
+      axios.get<AttendanceResponse>(
+        "https://kiet.cybervidya.net/api/attendance/course/component/student",
+        { headers: { Authorization: `GlobalEducation ${token}` } }
+      ).then(res => {
+        setAttendanceData(res.data);
+      }).catch(() => {
+        Cookies.remove(AUTH_COOKIE_NAME);
+      }).finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-600 font-bold animate-pulse">Initializing Portal...</div>;
+
+  return attendanceData ? (
+    <Attendance attendanceData={attendanceData} setAttendanceData={setAttendanceData} />
+  ) : (
+    <AttendanceLogin onLogin={(data) => setAttendanceData(data)} />
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/moodle/*" element={<MoodleApp />} />
+        <Route path="/attendance/*" element={<AttendanceApp />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
 """
 }
 
-# Create directories and files
 for path, content in files.items():
-    # Ensure directory exists
     dir_name = os.path.dirname(path)
-    if dir_name:
-        os.makedirs(dir_name, exist_ok=True)
-    
-    # Write file content
-    with open(path, "w") as f:
+    if dir_name: os.makedirs(dir_name, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
-    print(f"Created: {path}")
+    print(f"✅ Reverted to Direct API: {path}")
 
-print("\n✅ All files created successfully! Run 'npm run dev' to start.")
+print("\\n🚀 CONNECTION FIX APPLIED! Restart 'npm run dev' and try logging in.")

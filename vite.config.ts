@@ -2,7 +2,6 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
 import { defineConfig } from "vite";
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
@@ -11,6 +10,11 @@ export default defineConfig({
         target: 'http://lms.kiet.edu',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/moodle-api/, '/moodle'),
+      },
+      '/attendance-api': {
+        target: 'https://kiet.cybervidya.net',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/attendance-api/, ''),
       },
     },
   },

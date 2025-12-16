@@ -2,7 +2,7 @@ import os
 
 # We are reverting the Attendance URLs to use "https://kiet.cybervidya.net" directly
 # while keeping the Moodle URLs on the Proxy.
-
+# Attendence part is not working properly with the Proxy currently.
 files = {
     # 1. FIX UTILS (Student ID Fetcher)
     "src/types/utils.ts": """import axios from "axios";

@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/react";
 import axios from "axios";
 import Cookies from "js-cookie";
 import { useEffect, useState } from "react";
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="/attendance/*" element={<AttendanceApp />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <Analytics />
     </BrowserRouter>
   );
 }
